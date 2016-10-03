@@ -1,53 +1,64 @@
-## legis-graph-spatial
+## panama-graph-map
 
-Adding geospatial indexing / querying to legis-graph as part of an interactive map visualization.
+This is a very simple demo on how to visualize locations of Addresses from the #PapamaPapers using MapBox.
 
-- **[Neo4j](http://neo4j.com/)** graph database. This extends the [legis-graph](https://github.com/legis-graph/legis-graph) example dataset.
-- **[neo4j-spatial](https://github.com/neo4j-contrib/spatial)** to enable geospatial indexing and querying
-- **[Mapbox JS](https://www.mapbox.com/mapbox.js/api/v2.3.0/)** javascript mapping library 
+The code was shamelessly stolen from [legis-graph-spatial](https://github.com/legis-graph/legis-graph-spatial) thanks [Will Lyon](http://twitter.com/lyonwj)!
 
-![](http://s3.amazonaws.com/dev.assets.neo4j.com/wp-content/uploads/20160328110022/legis-graph-spatial.gif)
+### Tools used
 
-See [this blog post](http://www.lyonwj.com/2016/08/09/neo4j-spatial-procedures-congressional-boundaries/) for more info.
+* Neo4j
+* Cypher
+* Bolt Javascript Driver
+* APOC procedures (geocode)
+* MapBox
 
-### Create spatial layer
+<img src="https://dl.dropboxusercontent.com/u/14493611/panama_map.jpg" width="400"/>
+
+### Download the Database from ICIJ
+
+Take the #PanamaPapers Neo4j database from the ICIJ's download site: https://offshoreleaks.icij.org/pages/database
+
+Unzip and run the database following the instructions in the readme.
+
+### GeoCode Addresses
+
+First geocode addresses of a country, like Denmark (DNK).
+
+It uses the [apoc procedure library](https://github.com/neo4j-contrib/neo4j-apoc-procedures) with is coming out of the box with the ICIJ database download.
+
+Just run in your Neo4j Browser:
 
 ```
-call spatial.addWKTLayer('geom', 'wkt')
-```
-**From the [neo4j-spatial documentation](http://neo4j-contrib.github.io/spatial/#rest-api-create-a-wkt-layer), create a WKT layer.**
-
-
-### Add nodes to the spatial layer
-
-```
-MATCH (d:District)
-WITH collect(d) AS districts
-CALL spatial.addNodes('geom', districts) YIELD node
-RETURN count(*)
+MATCH (a:Address) WHERE a.country_codes = "DNK" 
+CALL apoc.spatial.geocodeOnce(a.address) YIELD location
+SET a += location
 ```
 
-### Spatial queries
+### Run this Project
+
+Now you can run this project (which is currently pinned to Denmark).
+
+E.g. by using `python -m SimpleHTTPServer` and then open http://localhost:8000
+
+Click on the country and the addresses are queried from Neo4j and rendered on the map with additional information taken from the graph.
+
+### Spatial Query
 
 ```
-CALL spatial.withinDistance('geom',
-  {latitude: 37.563440, longitude: -122.322265}, 1) YIELD node AS d
-WITH d, d.wkt AS wkt, d.state AS state, d.district AS district LIMIT 1
-MATCH (d)<-[:REPRESENTS]-(l:Legislator)
-MATCH (l)-[:SERVES_ON]->(c:Committee)
-MATCH (c)<-[:REFERRED_TO]-(b:Bill)
-MATCH (b)-[:DEALS_WITH]->(s:Subject)
-WITH wkt, state, district, l.govtrackID AS govtrackID, l.lastName AS lastName,
-  l.firstName AS firstName, l.currentParty AS party, s.title AS subject,
-  count(*) AS strength, collect(DISTINCT c.name) AS committees
-ORDER BY strength DESC LIMIT 10
-WITH wkt, state, district, {lastName: lastName, firstName: firstName,
-  govtrackID: govtrackID, party: party, committees: committees} AS legislator,
-  collect({subject: subject, strength: strength}) AS subjects
-RETURN {legislator: legislator, subjects: subjects, state: state,
-  district: district} AS r, wkt LIMIT 1
+// graph pattern we're looking for
+MATCH (a:Address)<--(officer:Officer)-[role]->(entity:Entity)
+
+// in this country with a location
+WHERE a.country_codes = "DNK" AND exists(a.longitude) AND 
+
+// and in this distance from the click point
+distance(point({pos}), point(a)) < ({distanceInKm} * 1000)
+
+// return positions and information from the graph pattern
+RETURN a.latitude, a.longitude, 
+{officer : officer.name, entity: entity.name, role: type(role),  
+ address : a.address,   country: entity.country_codes} AS data
 ```
-**From the [neo4j-spatial documentation](http://neo4j-contrib.github.io/spatial/#rest-api-find-geometries-within--distance), finding geometries within distance of a point**
 
 ### Working with Mapbox
 
@@ -59,7 +70,7 @@ var map = L.mapbox.map('map', 'mapbox.streets')
 
 map.on('click', function(e) {
   clearMap(map);
-  getClosestDistrict(e);
+  getAddresses("DNK",e.latlng, 50)
 });
 
 ~~~
@@ -68,74 +79,36 @@ map.on('click', function(e) {
 
 ~~~ javascript
 
-/**
-  *  Find the District for a given latlng.
-  *  Find the representative, commitees and subjects for that rep.
-  */
-function infoDistrictWithinDistance(latlng, distance) {
-
-  var districtParams = {
-    "layer": "geom",
-    "pointX": latlng.lng,
-    "pointY": latlng.lat,
-    "distanceInKm": distance
-  };
-
- var districtURL = baseURI + findGeometriesPath;
- makePOSTRequest(districtURL, districtParams, function (error, data) {
-
-   if (error) {
-    console.log("Error");
-   } else {
-    console.log(data);
-
-   var params = {
-    "state": data[0]["data"]["state"],
-    "district": data[0]["data"]["district"]
-   };
-
-   var points = parseWKTPolygon(data[0]["data"]["wkt"]);
-
-   makeCypherRequest([{"statement": subjectsQuery, "parameters": params}], function (error, data) {
-
-    if (error) {
-      console.log("Error");
-    } else {
-      console.log(data);
-
-      var districtInfo = data["results"][0]["data"][0]["row"][0];
-      districtInfo["points"] = points;
-      districtInfo["state"] = params["state"];
-      districtInfo["district"] = params["district"];
-      console.log(districtInfo);
-
-      addDistrictToMap(districtInfo, latlng);
+function getAddresses(country, pos, distance) {
+    
+    var addressParams = {
+        "country": country,
+        "longitude": pos.lng, 
+        "latitude": pos.lat,
+        "distanceInKm": distance || 50
     }
-   });
- }
-});
+
+    session
+        .run(addressQuery, addressParams)
+        .then(function(result){
+            result.records.forEach(function(record) {
+                addAddress(record.get("latitude"),record.get("longitude"),
+                           record.get("text"));
+            });
+
+        })
+}
+
 
 ~~~
 
 
-#### Parse WKT into an array of points
+#### Rendering Addresses On Map 
 
 ~~~ javascript
 
-/**
- *  Converts Polygon WKT string to an array of [x,y] points
- */
-function parseWKTPolygon(wkt) {
-  var pointArr = [];
-  var points = wkt.slice(10, -3).split(",");
-
-  $.each(points, function(i,v) {
-    var point = $.trim(v).split(" ");
-    var xy = [Number(point[1]), Number(point[0])];
-    pointArr.push(xy)
-  });
-
-  return pointArr;
+function addAddress(lat,lon, data) {
+   L.marker([lat,lon],{title:JSON.stringify(data)}).addTo(map);
 }
 
 ~~~

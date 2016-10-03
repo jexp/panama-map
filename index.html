@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset=utf-8 />
-    <title>LegisGraphSpatial</title>
+    <title>PanamaGraphSpatial</title>
     <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
     <script src='https://api.mapbox.com/mapbox.js/v2.2.3/mapbox.js'></script>
     <link href='https://api.mapbox.com/mapbox.js/v2.2.3/mapbox.css' rel='stylesheet' />
@@ -43,10 +43,10 @@
 <div id="desc">
     <div class="row top-row">
         <div class="col-xs-6">
-            <h3 class="heading">Legis-graph-spatial <small>Click anywhere in the US to learn more.</small></h3>
+            <h3 class="heading">Panama Papers Spatial</h3>
         </div>
         <div class="col-xs-6">
-            <p class="lead">Do you know who your representative is? Click anywhere in the US to learn more about your representative and the subjects over which they have influence. <a href="https://github.com/legis-graph/legis-graph-spatial">How does it work?</a></p>
+            <p class="lead"></p>
         </div>
 
     </div>
@@ -58,26 +58,18 @@
     /**
      * Constants
      */
-    var boltURI = 'bolt://138.68.21.245';
+    var boltURI = 'bolt://localhost';
     var MB_API_TOKEN = "pk.eyJ1IjoibHlvbndqIiwiYSI6IndwUXlLUjQifQ.DIiytYUASOcXjKdpXW8S-Q";
 
     var driver = neo4j.v1.driver(boltURI);
     var session = driver.session();
 
-    var subjectsQuery = 
-        "CALL spatial.withinDistance('geom', {latitude: {lat}, longitude: {lon}}, 1) YIELD node AS d \n" +
-        "WITH d, d.wkt AS wkt, d.state AS state, d.district AS district LIMIT 1 \n" +
-        "MATCH (d)<-[:REPRESENTS]-(l:Legislator) \n" +
-        "MATCH (l)-[:SERVES_ON]->(c:Committee) \n" +
-        "MATCH (c)<-[:REFERRED_TO]-(b:Bill) \n" +
-        "MATCH (b)-[:DEALS_WITH]->(s:Subject) \n" +
-        "WITH wkt, state, district, l.govtrackID AS govtrackID, l.lastName AS lastName, l.firstName AS firstName, l.currentParty AS party, s.title AS subject, count(*) AS strength, collect(DISTINCT c.name) AS committees ORDER BY strength DESC LIMIT 10 \n" +
-        "WITH wkt, state, district, {lastName: lastName, firstName: firstName, govtrackID: govtrackID, party: party, committees: committees} AS legislator, collect({subject: subject, strength: strength}) AS subjects \n" +
-        "RETURN {legislator: legislator, subjects: subjects, state: state, district: district} AS r, wkt LIMIT 1";
-
-    var districtQuery =
-        "CALL spatial.withinDistance('geom', {latitude:{lat}, longitude:{lon}}, 1) YIELD node AS d \n" +
-        "RETURN d.wkt AS wkt, d.state AS state, d.district AS district LIMIT 1;"
+    var addressQuery =
+        "WITH point({longitude: {longitude}, latitude: {latitude}}) as pos "+
+        "MATCH (a:Address)<--(officer:Officer)-[role]->(entity:Entity) " + 
+        "WHERE a.country_codes = {country} AND exists(a.longitude) AND " +
+        " distance(pos, point(a)) < ({distanceInKm} * 1000) " +
+        "RETURN a.latitude AS latitude, a.longitude AS longitude, {officer : officer.name, entity: entity.name, role: type(role), address: a.address, country: entity.country_codes}  AS text"
 
     /**
      * Clears the map. Remove all currently shown layers
@@ -119,24 +111,21 @@
      }
 
 
-    function getDistricts(latlng, distance) {
+    function getAddresses(country, pos, distance) {
         
-        var districtParams = {
-            "layer": "geom",
-            "lon": latlng.lng,
-            "lat": latlng.lat,
-            "distanceInKm": distance
+        var addressParams = {
+            "country": country,
+            "longitude": pos.lng, 
+            "latitude": pos.lat,
+            "distanceInKm": distance || 50
         }
 
         session
-            .run(subjectsQuery, districtParams)
+            .run(addressQuery, addressParams)
             .then(function(result){
                 result.records.forEach(function(record) {
-                    console.log(record);
-
-                    drawPolygons(parseWKTPolygons(record.get("wkt")), 'brown');
-                    addDistrictPopup(record.get("r"), latlng);
-
+                    addAddress(record.get("latitude"),record.get("longitude"),
+                               JSON.stringify(record.get("text")));
                 });
 
             })
@@ -225,45 +214,17 @@
 
     }
 
-     function drawPolygons(polygons, color) {
-         var bounds = null;
-
-         console.log("Drawing " + polygons.length + " polygons");
-         $.each(polygons, function (i, points) {
-             try {
-                 console.log("Drawing polygon " + (i + 1) + "/" + polygons.length + " of " + points.length + " points");
-                 var polyline = L.polygon(points, {color: color}).addTo(map);
-                 if (bounds == null) {
-                     bounds = polyline.getBounds();
-                 } else {
-                     bounds.extend(polyline.getBounds());
-                 }
-             } catch (err) {
-                 console.log("Failed to draw polygon " + (i + 1) + "/" + polygons.length + ": " + err);
-             }
-         });
-         if (bounds) {
-             map.fitBounds(bounds);
-         }
+     function addAddress(lat,lon, text) {
+	    L.marker([lat,lon],{title:text}).addTo(map);
      }
-
-    /**
-     * Event handler for map click
-     *
-     * @param event
-     */
-    function getClosestDistrict(event) {
-        getDistricts(event.latlng, 1);
-    }
 
     L.mapbox.accessToken = MB_API_TOKEN;
     var map = L.mapbox.map('map', 'mapbox.streets')
-            .setView([39.8282, -98.5795], 5);
+            .setView([55.6418041,12.5780417], 11); // 39.8282, -98.5795s
 
     map.on('click', function(e) {
         clearMap(map);
-        getClosestDistrict(e);
-
+        getAddresses("DNK",e.latlng, 50)
     });
 });
 
