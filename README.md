@@ -49,7 +49,7 @@ Click on the country and the addresses are queried from Neo4j and rendered on th
 MATCH (a:Address)<--(officer:Officer)-[role]->(entity:Entity)
 
 // in this country with a location
-WHERE a.country_codes = "DNK" AND exists(a.longitude) AND 
+WHERE a.country_codes = {country} AND exists(a.longitude) AND 
 
 // and in this distance from the click point
 distance(point({pos}), point(a)) < ({distanceInKm} * 1000)

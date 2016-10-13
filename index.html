@@ -61,7 +61,7 @@
     var boltURI = 'bolt://localhost';
     var MB_API_TOKEN = "pk.eyJ1IjoibHlvbndqIiwiYSI6IndwUXlLUjQifQ.DIiytYUASOcXjKdpXW8S-Q";
 
-    var driver = neo4j.v1.driver(boltURI);
+    var driver = neo4j.v1.driver(boltURI, neo4j.v1.auth.basic("neo4j", "test"));
     var session = driver.session();
 
     var addressQuery =
@@ -126,6 +126,7 @@
                 result.records.forEach(function(record) {
                     addAddress(record.get("latitude"),record.get("longitude"),
                                JSON.stringify(record.get("text")));
+ 	                addPopup(record.get("text"), {lat:record.get("latitude"),lng:record.get("longitude")});
                 });
 
             })
@@ -137,12 +138,7 @@
      * @returns {string}
      */
     function buildPopup(d) {
-
-        var legislator = d["legislator"];
-        var committees = legislator["committees"];
-        var legislatorName = "Rep. " + legislator["firstName"] + " " + legislator["lastName"];
-        var imgURL= "https://www.govtrack.us/data/photos/" + legislator["govtrackID"] + "-50px.jpeg";
-        var subjects = d["subjects"];
+        // {officer : officer.name, entity: entity.name, role: type(role), address: a.address, country: entity.country_codes}
 
         var text =
                 '<ul class="nav nav-tabs" role="tablist">' +
@@ -153,38 +149,17 @@
                 '<div role="tabpanel" class="tab-pane active" id="home">' +
 
                     '<div class="row">' +
-                        '<div class="col-xs-3">' +
-                            '<img src="'+ imgURL + '">' +
-                        '</div>' +
                         '<div class="col-xs-9">' +
                             '<ul class="list-unstyled">' +
-                            '<li><strong>' + legislatorName + '</strong></li>' +
-                            '<li>District: ' + d["district"] + '</li>' +
-                            '<li>State: ' + d["state"] + '</li>' +
+                            '<li><strong>' + d["officer"] + '</strong></li>' +
+                            '<li>Address: ' + d["address"] + '</li>' +
+                            '<li>Entity: ' + d["entity"] + '</li>' +
+                            '<li>Role: ' + d["role"] + '</li>' +
                         '</div>' +
-                    '</div>' +
-
-                    '<div class="row committees">' +
-                        '<dl><dt>Committees</dt>';
-
-                $.each(committees, function(i,v) {
-                        text = text + '<dd>' + v + '</dd>';
-                });
-                   text = text +
-                        '</dl>' +
-                    '</div>' +
-
-                    '<div class="row">' +
-                        '<ul>';
-                $.each(subjects, function(i,v) {
-                    text = text + '<li>' + v["subject"] + " (" + v["strength"] + ")";
-                });
-                            text = text +
-                        '</ul>' +
                     '</div>' +
                 '</div>' +
             '<div role="tabpanel" class="tab-pane" id="code">' +
-                '<pre class="pre-scrollable">' + subjectsQuery + '</pre>' +
+                '<pre class="pre-scrollable">' + addressQuery + '</pre>' +
             '</div>' +
 
         '</div>'
@@ -201,7 +176,7 @@
      * @param data
      * @param latlng
      */
-    function addDistrictPopup(data, latlng) {
+    function addPopup(data, latlng) {
 
         popuptext = buildPopup(data);
 
@@ -220,11 +195,11 @@
 
     L.mapbox.accessToken = MB_API_TOKEN;
     var map = L.mapbox.map('map', 'mapbox.streets')
-            .setView([55.6418041,12.5780417], 11); // 39.8282, -98.5795s
+            .setView([37.7841335,-122.3957437], 13); // US 39.8282, -98.5795 // cph 55.6418041,12.5780417
 
     map.on('click', function(e) {
         clearMap(map);
-        getAddresses("DNK",e.latlng, 50)
+        getAddresses("USA",e.latlng, 1000)
     });
 });
 
