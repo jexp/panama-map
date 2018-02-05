@@ -12,7 +12,7 @@ The code was shamelessly stolen from [legis-graph-spatial](https://github.com/le
 * APOC procedures (geocode)
 * MapBox
 
-<img src="https://dl.dropboxusercontent.com/u/14493611/panama_map.jpg" width="400"/>
+<img src="panama_map.jpg" width="400"/>
 
 ### Download the Database from ICIJ
 
